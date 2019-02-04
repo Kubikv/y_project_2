@@ -2,29 +2,34 @@ import pygame
 import os
 import sys
 
+
 pygame.init()
 win = pygame.display.set_mode((1600, 700))
-pygame.display.set_caption('Kubik Game')
+pygame.display.set_caption('I WANNA BE CRUSADER!')
 
 clock = pygame.time.Clock()
 x = 65
 y = 571
 w = 65
 h = 65
+j_c = False
 speed = 5
+on_ground = False
 isJump = False
-jumpCount = 10
+jumpCount = 9
+health_point = 1
 left = False
 right = False
 animCount = 0
 LastMove = 'right'
-FPS = 50
+FPS = 25
 bullets = []
 flag = False
 flag2 = True
 all_sprites = pygame.sprite.Group()
 tiles_group = pygame.sprite.Group()
 player_group = pygame.sprite.Group()
+damage_group = pygame.sprite.Group()
 player = None
 
 
@@ -74,17 +79,57 @@ tile_images = {
     'block_dirt_path': tiles[8],
     'block_brick_normal': tiles[9],
     'block_cross_bloody': tiles[10],
-    'block_cross_normal': tiles[11]
+    'block_cross_normal': tiles[11],
+    'block_box': tiles[12]
 }
 
 tile_width = tile_height = 65
 game_fon = load_image('green.png')
-player_image = load_image('wh_normal.png')
+
+ANIMATION_RIGHT = [load_image('kn_r1.png'),
+                   load_image('kn_r2.png'),
+                   load_image('kn_r3.png'),
+                   load_image('kn_r4.png'),
+                   load_image('kn_r5.png')]
+
+ANIMATION_LEFT = [load_image('kn_l1.png'),
+                  load_image('kn_l2.png'),
+                  load_image('kn_l3.png'),
+                  load_image('kn_l4.png'),
+                  load_image('kn_l5.png')]
+
+ANIMATION_JUMP_LEFT = load_image('kn_l4.png')
+ANIMATION_JUMP_RIGHT = load_image('kn_r4.png')
+ANIMATION_JUMP = load_image('teutonic_knight.png')
+ANIMATION_STAY = load_image('teutonic_knight.png')
+
+spike_images = [load_image('spike.png'),
+                load_image('spike2.png'),
+                load_image('spike3.png'),
+                load_image('spike4.png')]
+
+HERETIC_RIGHT = [load_image('heretic_r1.png'),
+                 load_image('heretic_r2.png'),
+                 load_image('heretic_r3.png'),
+                 load_image('heretic_r4.png'),
+                 load_image('heretic_r5.png')]
+
+HERETIC_LEFT = [load_image('heretic_l1.png'),
+                load_image('heretic_l2.png'),
+                load_image('heretic_l3.png'),
+                load_image('heretic_l4.png'),
+                load_image('heretic_l5.png')]
+
+HERETIC_STAY = load_image('heretic_knight.png')
 
 
 def terminate():
     pygame.quit()
     sys.exit()
+
+
+def death(pos_x, pos_y):
+    return Player(pos_x, pos_y)
 
 
 def load_level(filename):
@@ -94,23 +139,10 @@ def load_level(filename):
     return level_map[::-1]
 
 
-class snaryad():
-    def __init__(self, x, y, radius, color, facing):
-        self.x = x
-        self.y = y
-        self.r = radius
-        self.color = color
-        self.facing = facing
-        self.vel = 8 * facing
-
-    def draw(self, window):
-        pygame.draw.circle(window, self.color, (self.x, self.y),
-                           self.r)
-
-
 class Tile(pygame.sprite.Sprite):
     def __init__(self, tile_type, pos_x, pos_y):
         super().__init__(tiles_group, all_sprites)
+        self.type = tile_type
         self.image = tile_images[tile_type]
         self.rect = self.image.get_rect().move(
             tile_width * pos_x, 635 - tile_height * pos_y)
@@ -118,6 +150,12 @@ class Tile(pygame.sprite.Sprite):
 
 def generate_level(level):
     new_player = None
+    for i in range(len(level)):
+        for g in range(len(level[i])):
+            if level[i][g] == '@':
+                new_player = Player(g, i)
+                f_1 = g
+                f_2 = i
     for i in range(len(level)):
         for g in range(len(level[i])):
             if level[i][g] == '-':
@@ -148,9 +186,17 @@ def generate_level(level):
                 Tile('block_cross_bloody', g, i)
             elif level[i][g] == '12':
                 Tile('block_cross_normal', g, i)
-            elif level[i][g] == '@':
-                new_player = Player(g, i)
-    return new_player, g, i
+            elif level[i][g] == '13':
+                Tile('block_box', g, i)
+            elif level[i][g] == 's_1':
+                Spike(0, g, i)
+            elif level[i][g] == 's_2':
+                Spike(1, g, i)
+            elif level[i][g] == 's_3':
+                Spike(2, g, i)
+            elif level[i][g] == 's_4':
+                Spike(3, g, i)
+    return new_player, f_1, f_2
 
 
 class Player(pygame.sprite.Sprite):
@@ -159,33 +205,136 @@ class Player(pygame.sprite.Sprite):
         self.cur_frame = 0
         self.x = pos_x
         self.y = pos_y
-        self.frames = player_sheet
-        self.image = self.frames[self.cur_frame]
+        self.left_frame = 0
+        self.right_frame = 0
+        self.image = ANIMATION_STAY
         self.rect = self.image.get_rect()
         self.mask = pygame.mask.from_surface(self.image)
         self.rect = self.image.get_rect().move(
             tile_width * pos_x, 600 - tile_height * pos_y)
 
     def update(self):
-        global left, right
-        if left:
-            self.rect = self.rect.move(0, 1)
-            # self.rect = self.rect = self.rect.move(1, 0)
+        global left, right, ANIMATION_RIGHT, ANIMATION_LEFT,\
+               isJump, jumpCount, on_ground, LastMove, j_c, player
+        flag3 = False
+        for spike in damage_group:
+            if pygame.sprite.collide_rect(self, spike):
+                self.kill()
+        for block in tiles_group:
+            if pygame.sprite.collide_rect(self, block):  # столкновения
+                if block.rect.top <= self.rect.bottom <= block.rect.top + 10 + (jumpCount ** 2) / 2 - 10:
+                    self.rect.bottom = block.rect.top
+                    on_ground = True
+                    isJump = False
+                    jumpCount = 9
+                    j_c = False
+                elif self.rect.top <= block.rect.bottom and isJump and \
+                        self.rect.right > (block.rect.right - 55) and \
+                        self.rect.left < (block.rect.left + 55):
+                    self.rect.top = block.rect.bottom
+                    isJump = False
+                    jumpCount = 9
+                    on_ground = False
+                    j_c = False
+                elif right and block.rect.left <= self.rect.right <= block.rect.left + 55:
+                    self.rect.right = block.rect.left
+                elif left and block.rect.right - 55 <= self.rect.left <= block.rect.right:
+                    self.rect.left = block.rect.right
 
-        if right:
-            self.rect = self.rect.move(0, 1)
-            # self.rect = self.rect.move(1, 0)
+                elif not right and not left:
+                    if LastMove == 'right':
+                        self.rect.right = block.rect.left - 5
+                    else:
+                        self.rect.left = block.rect.right + 5
+        for block in tiles_group:
+            if block.rect.top == self.rect.bottom and(
+               block.rect.left <= self.rect.left <= block.rect.right or
+               block.rect.left <= self.rect.right <= block.rect.right):
+                flag3 = True
+            else:
+                block.image = tile_images[block.type]
 
-        if not pygame.sprite.spritecollideany(self, tiles_group):
-            self.rect = self.rect.move(0, 1)
-            #self.cur_frame = (self.cur_frame + 1) % len(self.frames)
-            #self.image = self.frames[self.cur_frame]
+        if isJump and on_ground and not j_c:
+            j_c = True
+        if j_c:
+            if jumpCount >= -9:
+                if jumpCount < 0:
+                    self.rect = self.rect.move(0, (jumpCount ** 2) / 2 - 10)
+                else:
+                    self.rect = self.rect.move(0, -(jumpCount ** 2) / 2 - 10)
+                jumpCount -= 1
+
+            else:
+                isJump = False
+                j_c = False
+                jumpCount = 9
+            if left:
+                self.image = ANIMATION_JUMP_LEFT
+                self.rect = self.rect.move(-10, 0)
+            elif right:
+                self.image = ANIMATION_JUMP_RIGHT
+                self.rect = self.rect.move(10, 0)
+            else:
+                self.image = ANIMATION_JUMP
+
+        elif left:
+            self.right_frame = 0
+            self.rect = self.rect.move(-10, 0)
+            self.image = ANIMATION_LEFT[self.left_frame]
+            self.left_frame += 1
+            self.left_frame %= len(ANIMATION_LEFT)
+
+        elif right:
+            self.left_frame = 0
+            self.image = ANIMATION_RIGHT[self.right_frame]
+            self.rect = self.rect.move(10, 0)
+            self.right_frame += 1
+            self.right_frame %= len(ANIMATION_RIGHT)
+
+        if not right and not left:
+            self.left_frame = 0
+            self.right_frame = 0
+            self.image = ANIMATION_STAY
+
+        if not on_ground:
+            self.rect = self.rect.move(0, 10)
+        if not flag3:
+            on_ground = False
 
 
-def drawWindow():
-    for bullet in bullets:
-        bullet.draw(win)
-    pygame.display.update()
+class Camera:
+    def __init__(self):
+        self.dx = 0
+        self.dy = 0
+
+    def apply(self, obj):
+        obj.rect.x += self.dx
+        obj.rect.y += self.dy
+
+    def update(self, target):
+        self.dx = -(target.rect.x + target.rect.w // 2 - 1600 // 2)
+        self.dy = -(target.rect.y + target.rect.h // 2 - 700 // 2)
+
+
+class Spike(pygame.sprite.Sprite):
+    def __init__(self, type, pos_x, pos_y):
+        super().__init__(damage_group, all_sprites)
+        self.image = spike_images[type]
+        if type == 0:
+            self.rect = self.image.get_rect().move(
+                tile_width * pos_x, 660 - tile_height * pos_y)
+        elif type == 1:
+            self.rect = self.image.get_rect().move(
+                tile_width * pos_x, 635 - tile_height * pos_y)
+        elif type == 2:
+            self.rect = self.image.get_rect().move(
+                tile_width * pos_x + 25, 635 - tile_height * pos_y)
+        elif type == 3:
+            self.rect = self.image.get_rect().move(
+                tile_width * pos_x, 635 - tile_height * pos_y)
+
+
+camera = Camera()
 
 
 def start_screen():
@@ -228,17 +377,6 @@ def start_screen():
         if keys[pygame.K_RETURN]:
             flag = True
         if flag:
-            if keys[pygame.K_f]:
-                if LastMove == 'right':
-                    facing = 1
-                else:
-                    facing = -1
-                if len(bullets) < 5:
-                    bullets.append(snaryad(round(x + w // 2),
-                                           round(y + h // 2),
-                                           5,
-                                           (255, 000, 000),
-                                           facing))
             if keys[pygame.K_LEFT]:
                 x -= speed
                 left = True
@@ -254,27 +392,19 @@ def start_screen():
             if not isJump:
                 if keys[pygame.K_SPACE]:
                     isJump = True
-            else:
-                if jumpCount >= -10:
-                    if jumpCount < 0:
-                        y += (jumpCount ** 2) / 2
-                    else:
-                        y -= (jumpCount ** 2) / 2
-                    jumpCount -= 1
-
-                else:
-                    isJump = False
-                    jumpCount = 10
-
-            drawWindow()
             if flag2:
-                generate_level(load_level('tutorial.txt'))
+                player, n, b = generate_level(load_level('tutorial.txt'))
                 win.blit(game_fon, (0, 0))
                 tiles_group.draw(win)
                 flag2 = False
+            if player not in all_sprites:
+                player = death(n, b)
             win.blit(game_fon, (0, 0))
             all_sprites.draw(win)
             all_sprites.update()
+            camera.update(player)
+            for sprite in all_sprites:
+                camera.apply(sprite)
             pygame.display.flip()
             clock.tick(FPS)
 
