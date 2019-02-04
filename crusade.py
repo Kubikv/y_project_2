@@ -17,20 +17,44 @@ speed = 5
 on_ground = False
 isJump = False
 jumpCount = 9
-health_point = 1
+health_point = 0
 left = False
 right = False
 animCount = 0
 LastMove = 'right'
 FPS = 25
-bullets = []
+score = 0
 flag = False
 flag2 = True
+player = None
+rank = ''
+tile_width = tile_height = 65
+
+levels = {1: False,
+          2: False,
+          3: False,
+          4: False}
+
+ranks = ['крепостной',
+         'простолюдина',
+         'оруженосец',
+         'рыцарь',
+         'крестоносец']
+
+difficulty = None
 all_sprites = pygame.sprite.Group()
 tiles_group = pygame.sprite.Group()
 player_group = pygame.sprite.Group()
 damage_group = pygame.sprite.Group()
-player = None
+nothing_group = pygame.sprite.Group()
+
+
+def prepare():
+    global difficulty, levels, score, rank
+    filename = "data/" + 'save.txt'
+    with open(filename, 'r') as mapFile:
+        info = [line.strip().split() for line in mapFile]
+    print(info)
 
 
 def load_image(name, colorkey=None):
@@ -83,7 +107,7 @@ tile_images = {
     'block_box': tiles[12]
 }
 
-tile_width = tile_height = 65
+
 game_fon = load_image('green.png')
 
 ANIMATION_RIGHT = [load_image('kn_r1.png'),
@@ -122,14 +146,26 @@ HERETIC_LEFT = [load_image('heretic_l1.png'),
 
 HERETIC_STAY = load_image('heretic_knight.png')
 
+HERETIC_STRONG_RIGHT = [load_image('heretic_str_r1.png'),
+                        load_image('heretic_str_r2.png'),
+                        load_image('heretic_str_r3.png'),
+                        load_image('heretic_str_r4.png'),
+                        load_image('heretic_str_r5.png')]
+
+HERETIC_STRONG_LEFT = [load_image('heretic_str_l1.png'),
+                       load_image('heretic_str_l2.png'),
+                       load_image('heretic_str_l3.png'),
+                       load_image('heretic_str_l4.png'),
+                       load_image('heretic_str_l5.png')]
+
+HERETIC_STRONG_STAY = load_image('heretic_knight_strong.png')
+
+transparent_im = load_image('transparent.png')
+
 
 def terminate():
     pygame.quit()
     sys.exit()
-
-
-def death(pos_x, pos_y):
-    return Player(pos_x, pos_y)
 
 
 def load_level(filename):
@@ -148,14 +184,33 @@ class Tile(pygame.sprite.Sprite):
             tile_width * pos_x, 635 - tile_height * pos_y)
 
 
+class Nothing(pygame.sprite.Sprite):  # спрайт на котором будет фокусироваться камера
+    def __init__(self):
+        super().__init__(nothing_group, all_sprites)
+        self.image = transparent_im
+        self.all_movement = 0
+        self.rect = self.image.get_rect().move(
+            783, 335)
+
+    def update(self):
+        self.rect = self.rect.move(2, 0)
+        self.all_movement += 2
+
+    def restart(self):
+        self.rect = self.rect.move(-self.all_movement, 0)
+        self.all_movement = 0
+
+
 def generate_level(level):
+    global start_pos_x, start_pos_y
     new_player = None
     for i in range(len(level)):
         for g in range(len(level[i])):
             if level[i][g] == '@':
                 new_player = Player(g, i)
-                f_1 = g
-                f_2 = i
+                start_pos_x = g
+                start_pos_y = i
+
     for i in range(len(level)):
         for g in range(len(level[i])):
             if level[i][g] == '-':
@@ -196,7 +251,17 @@ def generate_level(level):
                 Spike(2, g, i)
             elif level[i][g] == 's_4':
                 Spike(3, g, i)
-    return new_player, f_1, f_2
+            elif level[i][g] == 'h':
+                Heretic(g, i)
+            elif level[i][g] == 'H':
+                HereticStrong(g, i)
+    return new_player
+
+
+def restart():
+    global start_pos_x, start_pos_y, focus
+    pl = Player(start_pos_x, start_pos_y)
+    return pl
 
 
 class Player(pygame.sprite.Sprite):
@@ -211,7 +276,7 @@ class Player(pygame.sprite.Sprite):
         self.rect = self.image.get_rect()
         self.mask = pygame.mask.from_surface(self.image)
         self.rect = self.image.get_rect().move(
-            tile_width * pos_x, 600 - tile_height * pos_y)
+            tile_width * pos_x, 635 - tile_height * pos_y)
 
     def update(self):
         global left, right, ANIMATION_RIGHT, ANIMATION_LEFT,\
@@ -334,14 +399,106 @@ class Spike(pygame.sprite.Sprite):
                 tile_width * pos_x, 635 - tile_height * pos_y)
 
 
+class Heretic(pygame.sprite.Sprite):  # класс простенького ai
+    def __init__(self, pos_x, pos_y):
+        super().__init__(damage_group, all_sprites)
+        self.cur_frame = 0
+        self.x = pos_x
+        self.y = pos_y
+        self.cur_move = 'left'  # первое движение всегда влево
+        self.count = 0
+        self.left_frame = 0
+        self.right_frame = 0
+        self.image = HERETIC_STAY
+        self.rect = self.image.get_rect()
+        self.mask = pygame.mask.from_surface(self.image)
+        self.rect = self.image.get_rect().move(
+            tile_width * pos_x, 634 - tile_height * pos_y)
+
+    def update(self):
+        self.count += 1
+        if 70 <= self.count <= 100:
+            self.image = HERETIC_STAY
+        else:
+            for block in tiles_group:
+                if pygame.sprite.collide_rect(self, block):
+                    if self.cur_move == 'left' and self.rect.left <= block.rect.right:
+                        self.cur_move = 'right'
+                        self.rect.left = block.rect.right
+                    else:
+                        self.cur_move = 'left'
+                        self.rect.right = block.rect.left
+
+            if self.cur_move == 'left':
+                self.right_frame = 0
+                self.rect = self.rect.move(-10, 0)
+                self.image = HERETIC_LEFT[self.left_frame]
+                self.left_frame += 1
+                self.left_frame %= len(HERETIC_LEFT)
+
+            else:
+                self.left_frame = 0
+                self.rect = self.rect.move(10, 0)
+                self.image = HERETIC_RIGHT[self.right_frame]
+                self.right_frame += 1
+                self.right_frame %= len(HERETIC_RIGHT)
+
+
+class HereticStrong(pygame.sprite.Sprite):  # класс сильного ai
+    def __init__(self, pos_x, pos_y):
+        super().__init__(damage_group, all_sprites)
+        self.cur_frame = 0
+        self.x = pos_x
+        self.y = pos_y
+        self.cur_move = 'left'  # первое движение тоже всегда влево
+        self.count = 0
+        self.left_frame = 0
+        self.right_frame = 0
+        self.image = HERETIC_STRONG_STAY
+        self.rect = self.image.get_rect()
+        self.mask = pygame.mask.from_surface(self.image)
+        self.rect = self.image.get_rect().move(
+            tile_width * pos_x, 634 - tile_height * pos_y)
+
+    def update(self):
+        self.count += 1
+        if 70 <= self.count <= 100:
+            self.image = HERETIC_STRONG_STAY
+        else:
+            for block in tiles_group:
+                if pygame.sprite.collide_rect(self, block):
+                    if pygame.sprite.collide_rect(self, block):
+                        if self.cur_move == 'left' and self.rect.left <= block.rect.right:
+                            self.cur_move = 'right'
+                            self.rect.left = block.rect.right
+                        else:
+                            self.cur_move = 'left'
+                            self.rect.right = block.rect.left
+
+            if self.cur_move == 'left':
+                self.right_frame = 0
+                self.rect = self.rect.move(-20, 0)
+                self.image = HERETIC_STRONG_LEFT[self.left_frame]
+                self.left_frame += 1
+                self.left_frame %= len(HERETIC_STRONG_LEFT)
+
+            else:
+                self.left_frame = 0
+                self.rect = self.rect.move(20, 0)
+                self.image = HERETIC_STRONG_RIGHT[self.right_frame]
+                self.right_frame += 1
+                self.right_frame %= len(HERETIC_STRONG_RIGHT)
+
+
 camera = Camera()
+focus = Nothing()
 
 
 def start_screen():
     global x, y, w, h,\
            speed, isJump, jumpCount, left,\
            right, animCount, LastMove, FPS,\
-           flag, flag2
+           flag, flag2, focus
 
     intro_text = ["ЗАСТАВКА", "",
                   "Правила игры",
@@ -368,11 +525,6 @@ def start_screen():
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 terminate()
-        for bullet in bullets:
-            if 0 < bullet.x < 500:
-                bullet.x += bullet.vel
-            else:
-                bullets.pop(bullets.index(bullet))
         keys = pygame.key.get_pressed()
         if keys[pygame.K_RETURN]:
             flag = True
@@ -393,16 +545,17 @@ def start_screen():
                 if keys[pygame.K_SPACE]:
                     isJump = True
             if flag2:
-                player, n, b = generate_level(load_level('tutorial.txt'))
+                player = generate_level(load_level('tutorial.txt'))
                 win.blit(game_fon, (0, 0))
                 tiles_group.draw(win)
                 flag2 = False
             if player not in all_sprites:
-                player = death(n, b)
+                focus.restart()
+                player = restart()
             win.blit(game_fon, (0, 0))
             all_sprites.draw(win)
             all_sprites.update()
-            camera.update(player)
+            camera.update(focus)
             for sprite in all_sprites:
                 camera.apply(sprite)
             pygame.display.flip()
