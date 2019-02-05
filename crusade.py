@@ -1,7 +1,7 @@
 import pygame
 import os
 import sys
-
+import random
 
 pygame.init()
 win = pygame.display.set_mode((1600, 700))
@@ -21,6 +21,7 @@ health_point = 0
 left = False
 right = False
 animCount = 0
+camera_velocity = 2
 LastMove = 'right'
 FPS = 25
 score = 0
@@ -47,6 +48,7 @@ tiles_group = pygame.sprite.Group()
 player_group = pygame.sprite.Group()
 damage_group = pygame.sprite.Group()
 nothing_group = pygame.sprite.Group()
+special_group = pygame.sprite.Group()
 
 
 def prepare():
@@ -107,7 +109,6 @@ tile_images = {
     'block_box': tiles[12]
 }
 
-
 game_fon = load_image('green.png')
 
 ANIMATION_RIGHT = [load_image('kn_r1.png'),
@@ -161,6 +162,7 @@ HERETIC_STRONG_LEFT = [load_image('heretic_str_l1.png'),
 HERETIC_STRONG_STAY = load_image('heretic_knight_strong.png')
 
 transparent_im = load_image('transparent.png')
+d_w_image = load_image('death_wall.png')
 
 
 def terminate():
@@ -173,6 +175,34 @@ def load_level(filename):
     with open(filename, 'r') as mapFile:
         level_map = [line.strip().split() for line in mapFile]
     return level_map[::-1]
+
+
+class Particle(pygame.sprite.Sprite):
+    blood = [load_image("blood.png")]
+    for scale in (5, 10, 20):
+        blood.append(pygame.transform.scale(blood[0], (scale, scale)))
+
+    def __init__(self, pos, dx, dy):
+        super().__init__(special_group, all_sprites)
+        self.image = random.choice(self.blood)
+        self.rect = self.image.get_rect()
+        self.velocity = [dx, dy]
+        self.rect.x, self.rect.y = pos
+        self.gravity = 0.35
+
+    def update(self):
+        self.velocity[1] += self.gravity
+        self.rect.x += self.velocity[0]
+        self.rect.y += self.velocity[1]
+        if not self.rect.colliderect((0, 0, 6239, 846)):
+            self.kill()
+
+
+def create_particles(position):
+    particle_count = 20
+    numbers = range(-5, 6)
+    for _ in range(particle_count):
+        Particle(position, random.choice(numbers), random.choice(numbers))
 
 
 class Tile(pygame.sprite.Sprite):
@@ -193,8 +223,15 @@ class Nothing(pygame.sprite.Sprite):  # спрайт на котором буд�
             783, 335)
 
     def update(self):
-        self.rect = self.rect.move(2, 0)
-        self.all_movement += 2
+        global camera_velocity, player
+
+        for pl in player_group:
+            if pl.rect.right >= 1000:
+                camera_velocity = 7
+            else:
+                camera_velocity = 2
+        self.rect = self.rect.move(camera_velocity, 0)
+        self.all_movement += camera_velocity
 
     def restart(self):
         self.rect = self.rect.move(-self.all_movement, 0)
@@ -259,8 +296,8 @@ def generate_level(level):
 
 
 def restart():
-    global start_pos_x, start_pos_y, focus
-    pl = Player(start_pos_x, start_pos_y)
+    global start_pos_x, start_pos_y
+    pl = Player(start_pos_x + 1, start_pos_y)
     return pl
 
 
@@ -284,10 +321,13 @@ class Player(pygame.sprite.Sprite):
         flag3 = False
         for spike in damage_group:
             if pygame.sprite.collide_rect(self, spike):
+                create_particles((self.rect.right - (self.rect.right -
+                                                     self.rect.left) // 2, self.rect.top))
                 self.kill()
         for block in tiles_group:
             if pygame.sprite.collide_rect(self, block):  # столкновения
-                if block.rect.top <= self.rect.bottom <= block.rect.top + 10 + (jumpCount ** 2) / 2 - 10:
+                if block.rect.top <= self.rect.bottom <= block.rect.top + 10 +\
+                        (jumpCount ** 2) / 2 - 10:
                     self.rect.bottom = block.rect.top
                     on_ground = True
                     isJump = False
@@ -442,6 +482,7 @@ class Heretic(pygame.sprite.Sprite):  # класс простенького ai
                 self.image = HERETIC_RIGHT[self.right_frame]
                 self.right_frame += 1
                 self.right_frame %= len(HERETIC_RIGHT)
+        self.count %= 100
 
 
 class HereticStrong(pygame.sprite.Sprite):  # класс сильного ai
@@ -462,7 +503,7 @@ class HereticStrong(pygame.sprite.Sprite):  # класс сильного ai
 
     def update(self):
         self.count += 1
-        if 70 <= self.count <= 100:
+        if 75 <= self.count <= 100:
             self.image = HERETIC_STRONG_STAY
         else:
             for block in tiles_group:
@@ -488,17 +529,36 @@ class HereticStrong(pygame.sprite.Sprite):  # класс сильного ai
                 self.image = HERETIC_STRONG_RIGHT[self.right_frame]
                 self.right_frame += 1
                 self.right_frame %= len(HERETIC_STRONG_RIGHT)
+        self.count %= 100
+
+
+class DeathWall(pygame.sprite.Sprite):
+    def __init__(self):
+        super().__init__(special_group, damage_group, all_sprites)
+        self.image = d_w_image
+        self.all_movement = 0
+        self.rect = self.rect = self.image.get_rect().move(
+                -105, -146)
+
+    def update(self):
+        self.rect = self.rect.move(3, 0)
+        self.all_movement += 3
+
+    def restart(self):
+        self.rect = self.rect.move(-self.all_movement, 0)
+        self.all_movement = 0
 
 
 camera = Camera()
 focus = Nothing()
+death = DeathWall()
 
 
 def start_screen():
     global x, y, w, h,\
            speed, isJump, jumpCount, left,\
            right, animCount, LastMove, FPS,\
-           flag, flag2, focus
+           flag, flag2, focus, death
 
     intro_text = ["ЗАСТАВКА", "",
                   "Правила игры",
@@ -551,9 +611,17 @@ def start_screen():
                 flag2 = False
             if player not in all_sprites:
                 focus.restart()
+                death.restart()
+                camera.update(focus)
+                for sprite in all_sprites:
+                    camera.apply(sprite)
                 player = restart()
             win.blit(game_fon, (0, 0))
-            all_sprites.draw(win)
+            player_group.draw(win)
+            damage_group.draw(win)
+            tiles_group.draw(win)
+            nothing_group.draw(win)
+            special_group.draw(win)
             all_sprites.update()
             camera.update(focus)
             for sprite in all_sprites:
