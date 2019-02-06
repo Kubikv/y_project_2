@@ -20,23 +20,39 @@ jumpCount = 9
 health_point = 0
 left = False
 right = False
+music_cur = -1
 animCount = 0
+save_time = 20
+level_cur = 0
 camera_velocity = 2
 LastMove = 'right'
 FPS = 25
 score = 0
-flag = False
+music_paying = False
+restart_ans = False
 flag2 = True
 player = None
+music_stat = True
+songs_list = {
+    0: 'legends.mp3',
+    1: 'peep.mp3',
+    2: 'march.mp3',
+    3: 'army_of_the_night.mp3',
+    4: 'combat.mp3',
+    5: 'in_the_name_of_god.mp3',
+    6: 'anihilate.mp3'
+}
 rank = ''
 tile_width = tile_height = 65
+playing = False
+all_bt = []
 
-levels = {1: False,
+levels = {1: True,
           2: False,
           3: False,
           4: False}
 
-ranks = ['крепостной',
+ranks = ['крестьянин'
          'простолюдина',
          'оруженосец',
          'рыцарь',
@@ -49,17 +65,28 @@ player_group = pygame.sprite.Group()
 damage_group = pygame.sprite.Group()
 nothing_group = pygame.sprite.Group()
 special_group = pygame.sprite.Group()
+win_group = pygame.sprite.Group()
 
 
 def prepare():
-    global difficulty, levels, score, rank
+    global difficulty, levels, score, rank, music_stat
     filename = "data/" + 'save.txt'
     with open(filename, 'r') as mapFile:
         info = [line.strip().split() for line in mapFile]
-    print(info)
+    difficulty = info[0][0]
+    score = int(info[2][0])
+    rank = info[3][0]
+    if info[4][0] == 'True':
+        music_stat = True
+    else:
+        music_stat = False
+    for i in range(4):
+        line = info[1][i].split(':')
+        if line == 'True':
+            levels[int(line[0])] = True
 
 
-def load_image(name, colorkey=None):
+def load_image(name, color_key=None):
     fullname = os.path.join('data', name)
     try:
         image = pygame.image.load(fullname)
@@ -67,10 +94,10 @@ def load_image(name, colorkey=None):
         print('Cannot load image:', name)
         raise SystemExit(message)
     image = image.convert_alpha()
-    if colorkey is not None:
-        if colorkey is -1:
-            colorkey = image.get_at((0, 0))
-        image.set_colorkey(colorkey)
+    if color_key is not None:
+        if color_key is -1:
+            color_key = image.get_at((0, 0))
+        image.set_colorkey(color_key)
     return image
 
 
@@ -87,9 +114,7 @@ def cut_sheet(sheet, columns, rows):
 
 
 player_sheet = load_image('player_sheet.png')
-columns = 5
-rows = 1
-player_sheet = cut_sheet(player_sheet, columns, rows)
+player_sheet = cut_sheet(player_sheet, 5, 1)
 
 tile_sheet = load_image('blocks3.png')
 tiles = cut_sheet(tile_sheet, 9, 2)
@@ -163,9 +188,23 @@ HERETIC_STRONG_STAY = load_image('heretic_knight_strong.png')
 
 transparent_im = load_image('transparent.png')
 d_w_image = load_image('death_wall.png')
+main_fon_image = load_image('main_bg.png')
+portal_image = load_image('portal_2.png')
 
 
 def terminate():
+    global difficulty, levels, score, rank, music_stat
+    result = open('data/save.txt', 'w')
+    result.write(difficulty + '\n')
+    line = ''
+    for i in range(1, 5):
+        line += str(i) + ':' + str(levels[i]) + ' '
+    result.write(line + '\n')
+    result.write(str(score) + '\n')
+    result.write(rank + '\n')
+    result.write(str(music_stat) + '\n')
+    result.close()
+    music_stop()
     pygame.quit()
     sys.exit()
 
@@ -175,6 +214,11 @@ def load_level(filename):
     with open(filename, 'r') as mapFile:
         level_map = [line.strip().split() for line in mapFile]
     return level_map[::-1]
+
+
+def load_music(name):
+    filename = 'data/' + name
+    return filename
 
 
 class Particle(pygame.sprite.Sprite):
@@ -203,6 +247,20 @@ def create_particles(position):
     numbers = range(-5, 6)
     for _ in range(particle_count):
         Particle(position, random.choice(numbers), random.choice(numbers))
+
+
+def music_start(m_number):
+    global music_paying
+    music_paying = True
+    pygame.mixer.init(frequency=22050, size=-16, channels=2, buffer=4096)
+    pygame.mixer.music.load(load_music(songs_list[m_number]))
+    pygame.mixer.music.play(-1)
+
+
+def music_stop():
+    global music_paying
+    pygame.mixer.music.stop()
+    music_paying = False
 
 
 class Tile(pygame.sprite.Sprite):
@@ -239,12 +297,12 @@ class Nothing(pygame.sprite.Sprite):  # спрайт на котором буд�
 
 
 def generate_level(level):
-    global start_pos_x, start_pos_y
+    global start_pos_x, start_pos_y, health_point
     new_player = None
     for i in range(len(level)):
         for g in range(len(level[i])):
             if level[i][g] == '@':
-                new_player = Player(g, i)
+                new_player = Player(g, i, health_point)
                 start_pos_x = g
                 start_pos_y = i
 
@@ -292,22 +350,243 @@ def generate_level(level):
                 Heretic(g, i)
             elif level[i][g] == 'H':
                 HereticStrong(g, i)
+            elif level[i][g] == 'p':
+                Portal(g, i)
     return new_player
 
 
 def restart():
-    global start_pos_x, start_pos_y
-    pl = Player(start_pos_x + 1, start_pos_y)
+    global start_pos_x, start_pos_y, health_point
+    pl = Player(start_pos_x + 1, start_pos_y, health_point)
     return pl
 
 
+class MainMenu:  # класс, отвечающий за прорисовку меню, кнопок и.т.д
+    def __init__(self):
+        self.score = score
+        self.rank = rank
+        self.dif = difficulty
+        self.font = pygame.font.SysFont('arial', 120)
+        self.font_bt = pygame.font.SysFont('arial', 60)
+
+    def menu(self):
+        global all_bt, music_stat, music_paying, music_cur, score, rank
+
+        if music_stat and not music_cur == 2:
+            music_cur = 2
+            music_start(music_cur)
+
+        all_bt = []
+        win.blit(main_fon_image, (0, 0))
+        text = self.font_bt.render("Rank:" + rank, 1, (255, 160, 0))
+        text_x = 110
+        text_y = 120
+        win.blit(text, (text_x, text_y))
+        text = self.font_bt.render("Score:" + str(score), 1, (255, 160, 0))
+        text_x = 110
+        text_y = 240
+        win.blit(text, (text_x, text_y))
+        text = self.font.render("I Wanna be CRUSADER", 1, (255, 204, 0))
+        text_x = 200
+        text_y = -22
+        win.blit(text, (text_x, text_y))
+        bt_play = Button(self.font_bt, 150, 'Играть')
+        all_bt.append(bt_play)
+        bt_set = Button(self.font_bt, 250, 'Настройки')
+        all_bt.append(bt_set)
+        bt_note = Button(self.font_bt, 350, 'Примечание')
+        all_bt.append(bt_note)
+        bt_ex = Button(self.font_bt, 450, 'Выход')
+        all_bt.append(bt_ex)
+
+    def levels(self):
+        global all_bt
+        all_bt = []
+        win.blit(main_fon_image, (0, 0))
+        text = self.font.render("Levels", 1, (255, 204, 0))
+        text_x = 650
+        text_y = -22
+        win.blit(text, (text_x, text_y))
+        bt_play = Button(self.font_bt, 150, 'Начало')
+        all_bt.append(bt_play)
+        bt_set = Button(self.font_bt, 250, 'Подземелье')
+        all_bt.append(bt_set)
+        bt_note = Button(self.font_bt, 350, 'Конец')
+        all_bt.append(bt_note)
+        bt_ex = Button(self.font_bt, 450, 'Эпилог???')
+        all_bt.append(bt_ex)
+        bt_back = Button(self.font_bt, 552, 'Назад')
+        all_bt.append(bt_back)
+
+    def settings(self):
+        global difficulty, music_stat, all_bt
+
+        all_bt = []
+        win.blit(main_fon_image, (0, 0))
+        text = self.font.render("Настройки", 1, (255, 204, 0))
+        text_x = 550
+        text_y = -22
+        win.blit(text, (text_x, text_y))
+        if music_stat:
+            bt_music = Button(self.font_bt, 150, 'Музыка:вкл')
+            all_bt.append(bt_music)
+        else:
+            bt_music = Button(self.font_bt, 150, 'Музыка:выкл')
+            all_bt.append(bt_music)
+        bt_dif = Button(self.font_bt, 250, 'Уровень сложности:' + difficulty)
+        all_bt.append(bt_dif)
+        bt_back = Button(self.font_bt, 552, 'Назад')
+        all_bt.append(bt_back)
+
+    def note(self):
+        global all_bt, music_cur, music_stat
+
+        if music_stat and not music_cur == 1:
+            music_cur = 1
+            music_start(music_cur)
+        all_bt = []
+        intro_text = ['Примечание', '',
+                      'Автор данной игры никого не хотел оскорбить.',
+                      'Все совпадения случайны и не несут никакого смысла.',
+                      'Если вы нашли в игре что-то задевающее ваши чуства,',
+                      'то я приношу свои искренние извинения.']
+
+        win.blit(main_fon_image, (0, 0))
+        text_coord = 50
+        for line in intro_text:
+            string_rendered = self.font_bt.render(line, 1, pygame.Color('yellow'))
+            intro_rect = string_rendered.get_rect()
+            text_coord += 10
+            intro_rect.top = text_coord
+            intro_rect.x = 10
+            text_coord += intro_rect.height
+            win.blit(string_rendered, intro_rect)
+
+        bt_back = Button(self.font_bt, 552, 'Назад')
+        all_bt.append(bt_back)
+
+    def difficulty(self):
+        win.blit(main_fon_image, (0, 0))
+        text = self.font.render("Уровень сложности", 1, (255, 200, 0))
+        text_x = 350
+        text_y = -22
+        win.blit(text, (text_x, text_y))
+        bt_easy = Button(self.font_bt, 150, 'Легкий')
+        all_bt.append(bt_easy)
+        bt_ramp = Button(self.font_bt, 250, 'Сложный')
+        all_bt.append(bt_ramp)
+
+    def death_screen(self):
+        global restart_ans, music_stat, music_cur, all_bt, score
+
+        all_bt = []
+        score += 1
+        if music_stat and not music_cur == 0:
+            music_cur = 0
+            music_start(music_cur)
+        restart_ans = False
+        text = self.font_bt.render("Вы умерли!", 1, (255, 200, 0))
+        text_x = 650
+        text_y = 100
+        pygame.draw.polygon(win, (109, 41, 1), ((600, 100),
+                                                (1000, 100),
+                                                (1000, 650),
+                                                (600, 650)), 0)
+        pygame.draw.rect(win, (46, 196, 24), (600, 100, 400, 550), 5)
+        win.blit(text, (text_x, text_y))
+        bt_back = Button(self.font_bt, 552, 'Назад')
+        all_bt.append(bt_back)
+        bt_set = Button(self.font_bt, 350, 'Настройки')
+        all_bt.append(bt_set)
+        bt_restart = Button(self.font_bt, 250, 'Заново')
+        all_bt.append(bt_restart)
+
+    def win_screen(self):
+        global restart_ans, music_stat, music_cur,\
+               all_bt, score, level_cur, levels, rank
+
+        all_bt = []
+        music_stop()
+        restart_ans = False
+        text = self.font_bt.render("Вы победили!", 1, (255, 200, 0))
+        text_x = 650
+        text_y = 100
+        pygame.draw.polygon(win, (109, 41, 1), ((600, 100),
+                                                (1000, 100),
+                                                (1000, 650),
+                                                (600, 650)), 0)
+        pygame.draw.rect(win, (46, 196, 24), (600, 100, 400, 550), 5)
+        win.blit(text, (text_x, text_y))
+        bt_win = Button(self.font_bt, 552, 'Deus Vult!')
+        all_bt.append(bt_win)
+        if level_cur == 1:
+            score += 50
+            levels[2] = True
+            rank = 'простолюдина'
+        elif level_cur == 2:
+            score += 150
+            levels[3] = True
+            rank = 'оруженосец'
+        elif level_cur == 3:
+            score += 370
+            levels[4] = True
+            rank = 'рыцарь'
+        elif level_cur == 4:
+            score += 890
+            rank = 'крестоносец'
+
+
+class Button:
+    def __init__(self, font, pos_y, string):
+        self.font = font
+        self.y = pos_y
+        self.string = string
+        self.text = self.font.render(self.string, 1, (255, 123, 0))
+        self.x = 1600 // 2 - self.text.get_width() // 2
+        self.text_w = self.text.get_width()
+        self.text_h = self.text.get_height()
+        self.mouse_on = False
+
+    def draw(self, pos_x, pos_y):
+        text_x = self.x
+        text_y = self.y
+        if self.x < pos_x < self.x + self.text_w + 10 and\
+                self.y < pos_y < self.text_h + self.y + 10:
+            self.mouse_on = True
+        else:
+            self.mouse_on = False
+        if self.mouse_on:
+            pygame.draw.polygon(win, (255, 235, 0), ((self.x - 10, self.y),
+                                                     (self.x + 10 + self.text_w, self.y),
+                                                     (self.x + self.text_w + 9, self.y + self.text_h + 10),
+                                                     (self.x - 10, self.y + self.text_h + 10)), 0)
+            win.blit(self.text, (text_x, text_y))
+            pygame.draw.rect(win, (109, 41, 1), (text_x - 10, text_y,
+                                                 self.text_w + 20, self.text_h + 10), 5)
+        else:
+            pygame.draw.polygon(win, (120, 120, 120), ((self.x - 10, self.y),
+                                                       (self.x + 10 + self.text_w, self.y),
+                                                       (self.x + self.text_w + 9, self.y + self.text_h + 10),
+                                                       (self.x - 10, self.y + self.text_h + 10)), 0)
+            win.blit(self.text, (text_x, text_y))
+            pygame.draw.rect(win, (109, 41, 1), (text_x - 10, text_y,
+                                                 self.text_w + 20, self.text_h + 10), 5)
+
+    def clicked(self, pos_x, pos_y):
+        if self.x < pos_x < self.x + self.text_w and\
+                self.y < pos_y < self.text_h + self.y:
+            return True
+        return False
+
+
 class Player(pygame.sprite.Sprite):
-    def __init__(self, pos_x, pos_y):
+    def __init__(self, pos_x, pos_y, health):
         super().__init__(player_group, all_sprites)
         self.cur_frame = 0
         self.x = pos_x
         self.y = pos_y
         self.left_frame = 0
+        self.health = health
         self.right_frame = 0
         self.image = ANIMATION_STAY
         self.rect = self.image.get_rect()
@@ -317,13 +596,26 @@ class Player(pygame.sprite.Sprite):
 
     def update(self):
         global left, right, ANIMATION_RIGHT, ANIMATION_LEFT,\
-               isJump, jumpCount, on_ground, LastMove, j_c, player
+               isJump, jumpCount, on_ground, LastMove, j_c, player,\
+               playing, save_time, health_point
+
         flag3 = False
+        for end in win_group:
+            if pygame.sprite.collide_rect(self, end):
+                screen.win_screen()
+                playing = False
+                self.kill()
         for spike in damage_group:
-            if pygame.sprite.collide_rect(self, spike):
+            if pygame.sprite.collide_rect(self, spike) and save_time == 0:
                 create_particles((self.rect.right - (self.rect.right -
                                                      self.rect.left) // 2, self.rect.top))
-                self.kill()
+                self.health -= 1
+                health_point -= 1
+                save_time = 20
+                if self.health <= 0:
+                    playing = False
+                    screen.death_screen()
+                    self.kill()
         for block in tiles_group:
             if pygame.sprite.collide_rect(self, block):  # столкновения
                 if block.rect.top <= self.rect.bottom <= block.rect.top + 10 +\
@@ -356,8 +648,6 @@ class Player(pygame.sprite.Sprite):
                block.rect.left <= self.rect.left <= block.rect.right or
                block.rect.left <= self.rect.right <= block.rect.right):
                 flag3 = True
-            else:
-                block.image = tile_images[block.type]
 
         if isJump and on_ground and not j_c:
             j_c = True
@@ -421,20 +711,28 @@ class Camera:
         self.dy = -(target.rect.y + target.rect.h // 2 - 700 // 2)
 
 
+class Portal(pygame.sprite.Sprite):
+    def __init__(self, pos_x, pos_y):
+        super().__init__(win_group, all_sprites)
+        self.image = portal_image
+        self.rect = self.image.get_rect().move(
+            tile_width * pos_x, 635 - tile_height * pos_y)
+
+
 class Spike(pygame.sprite.Sprite):
-    def __init__(self, type, pos_x, pos_y):
+    def __init__(self, side, pos_x, pos_y):
         super().__init__(damage_group, all_sprites)
-        self.image = spike_images[type]
-        if type == 0:
+        self.image = spike_images[side]
+        if side == 0:
             self.rect = self.image.get_rect().move(
                 tile_width * pos_x, 660 - tile_height * pos_y)
-        elif type == 1:
+        elif side == 1:
             self.rect = self.image.get_rect().move(
                 tile_width * pos_x, 635 - tile_height * pos_y)
-        elif type == 2:
+        elif side == 2:
             self.rect = self.image.get_rect().move(
                 tile_width * pos_x + 25, 635 - tile_height * pos_y)
-        elif type == 3:
+        elif side == 3:
             self.rect = self.image.get_rect().move(
                 tile_width * pos_x, 635 - tile_height * pos_y)
 
@@ -549,52 +847,161 @@ class DeathWall(pygame.sprite.Sprite):
         self.all_movement = 0
 
 
-camera = Camera()
-focus = Nothing()
-death = DeathWall()
+screen = MainMenu()
+prepare()
 
 
 def start_screen():
     global x, y, w, h,\
            speed, isJump, jumpCount, left,\
            right, animCount, LastMove, FPS,\
-           flag, flag2, focus, death
+           playing, flag2, focus, death, all_bt,\
+           player, difficulty, music_stat, music_cur,\
+           restart_ans, level_cur, health_point, save_time
 
-    intro_text = ["ЗАСТАВКА", "",
-                  "Правила игры",
-                  "Если в правилах несколько строк,",
-                  "приходится выводить их построчно",
-                  'Нажмите ENTER для начала игры']
-
-    fon = pygame.transform.scale(load_image('fon.jpg'), (1600, 700))
-    win.blit(fon, (0, 0))
-    font = pygame.font.Font(None, 30)
-    text_coord = 50
-    for line in intro_text:
-        string_rendered = font.render(line, 1, pygame.Color('black'))
-        intro_rect = string_rendered.get_rect()
-        text_coord += 10
-        intro_rect.top = text_coord
-        intro_rect.x = 10
-        text_coord += intro_rect.height
-        win.blit(string_rendered, intro_rect)
-        pygame.display.flip()
+    if difficulty == 'None':
+        screen.difficulty()
+    else:
+        screen.menu()
+    pygame.display.flip()
 
     while True:
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 terminate()
+            if event.type == pygame.MOUSEMOTION:
+                for bt in all_bt:
+                    Button.draw(bt, event.pos[0], event.pos[1])
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                if pygame.mouse.get_pressed()[0] == 1:
+                    for bt in all_bt:
+                        if Button.clicked(bt, event.pos[0], event.pos[1]) and bt.string == 'Играть':
+                            screen.levels()
+                        elif Button.clicked(bt, event.pos[0], event.pos[1]) and bt.string == 'Настройки':
+                            screen.settings()
+                        elif Button.clicked(bt, event.pos[0], event.pos[1]) and bt.string == 'Примечание':
+                            screen.note()
+                        elif Button.clicked(bt, event.pos[0], event.pos[1]) and bt.string == 'Выход':
+                            terminate()
+                        elif Button.clicked(bt, event.pos[0], event.pos[1]) and bt.string == 'Назад':
+                            for s in all_sprites:
+                                s.kill()
+                            screen.menu()
+                        elif Button.clicked(bt, event.pos[0], event.pos[1]) and bt.string == 'Легкий':
+                            difficulty = 'легкий'
+                            screen.menu()
+                        elif Button.clicked(bt, event.pos[0], event.pos[1]) and bt.string == 'Сложный':
+                            difficulty = 'сложный'
+                            screen.menu()
+                        elif Button.clicked(bt, event.pos[0], event.pos[1]) and bt.string.startswith('Уровень'):
+                            if difficulty == 'сложный':
+                                difficulty = 'легкий'
+                            else:
+                                difficulty = 'сложный'
+                            screen.settings()
+                        elif Button.clicked(bt, event.pos[0], event.pos[1]) and bt.string.startswith('Музыка'):
+                            if music_stat:
+                                music_stat = False
+                                music_stop()
+                            else:
+                                music_start(music_cur)
+                                music_stat = True
+                            screen.settings()
+                        elif Button.clicked(bt, event.pos[0], event.pos[1]) and bt.string == 'Начало':
+                            all_bt = []
+                            level_cur = 1
+                            win.blit(game_fon, (0, 0))
+                            tiles_group.draw(win)
+                            flag2 = False
+                            playing = True
+                            music_start(4)
+                            camera = Camera()
+                            focus = Nothing()
+                            death = DeathWall()
+                            if difficulty == 'сложный':
+                                health_point = 1
+                            else:
+                                health_point = 5
+                            player = generate_level(load_level('level_1.txt'))
+                        elif Button.clicked(bt, event.pos[0], event.pos[1]) and bt.string == 'Подземелье':
+                            all_bt = []
+                            win.blit(game_fon, (0, 0))
+                            tiles_group.draw(win)
+                            flag2 = False
+                            playing = True
+                            music_start(5)
+                            camera = Camera()
+                            focus = Nothing()
+                            death = DeathWall()
+                            level_cur = 2
+                            if difficulty == 'сложный':
+                                health_point = 1
+                            else:
+                                health_point = 5
+                            player = generate_level(load_level('level_2.txt'))
+                        elif Button.clicked(bt, event.pos[0], event.pos[1]) and bt.string == 'Конец':
+                            all_bt = []
+                            win.blit(game_fon, (0, 0))
+                            tiles_group.draw(win)
+                            flag2 = False
+                            playing = True
+                            music_start(3)
+                            camera = Camera()
+                            focus = Nothing()
+                            death = DeathWall()
+                            if difficulty == 'сложный':
+                                health_point = 1
+                            else:
+                                health_point = 5
+                            player = generate_level(load_level('level_3.txt'))
+                        elif Button.clicked(bt, event.pos[0], event.pos[1]) and bt.string == 'Эпилог???':
+                            all_bt = []
+                            win.blit(game_fon, (0, 0))
+                            tiles_group.draw(win)
+                            flag2 = False
+                            playing = True
+                            music_start(6)
+                            level_cur = 4
+                            if difficulty == 'сложный':
+                                health_point = 1
+                            else:
+                                health_point = 5
+                            player = generate_level(load_level('level_4.txt'))
+                        elif Button.clicked(bt, event.pos[0], event.pos[1]) and bt.string == 'Заново':
+                            all_bt = []
+                            restart_ans = True
+                            if difficulty == 'сложный':
+                                health_point = 1
+                            else:
+                                health_point = 5
+                            playing = True
+                            if level_cur == 1:
+                                music_cur = 4
+                            if level_cur == 2:
+                                music_cur = 5
+                            if level_cur == 3:
+                                music_cur = 3
+                            if level_cur == 4:
+                                music_cur = 6
+                            music_start(music_cur)
+                        elif Button.clicked(bt, event.pos[0], event.pos[1]) and bt.string == 'Deus Vult':
+                            for s in all_sprites:
+                                s.kill()
+                            screen.menu()
+
+        pygame.display.flip()
         keys = pygame.key.get_pressed()
-        if keys[pygame.K_RETURN]:
-            flag = True
-        if flag:
-            if keys[pygame.K_LEFT]:
+        if playing:
+            if save_time > 0:
+                save_time -= 1
+            pygame.mouse.set_visible(False)
+            if keys[pygame.K_a]:
                 x -= speed
                 left = True
                 right = False
                 LastMove = 'left'
-            elif keys[pygame.K_RIGHT]:
+            elif keys[pygame.K_d]:
                 left = False
                 right = True
                 LastMove = 'right'
@@ -604,12 +1011,7 @@ def start_screen():
             if not isJump:
                 if keys[pygame.K_SPACE]:
                     isJump = True
-            if flag2:
-                player = generate_level(load_level('tutorial.txt'))
-                win.blit(game_fon, (0, 0))
-                tiles_group.draw(win)
-                flag2 = False
-            if player not in all_sprites:
+            if player not in all_sprites and restart_ans:
                 focus.restart()
                 death.restart()
                 camera.update(focus)
@@ -626,8 +1028,16 @@ def start_screen():
             camera.update(focus)
             for sprite in all_sprites:
                 camera.apply(sprite)
+            font = pygame.font.SysFont('arial', 36)
+            text = font.render("Health:" + str(health_point), 1, (255, 200, 0))
+            text_x = 60
+            text_y = 120
+            win.blit(text, (text_x, text_y))
             pygame.display.flip()
             clock.tick(FPS)
+        else:
+            pygame.mouse.set_visible(True)
 
 
-start_screen()
+if __name__ == "__main__":
+    start_screen()
