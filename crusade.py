@@ -85,7 +85,6 @@ def prepare():
         line = info[1][i].split(':')
         if line[1] == 'True':
             levels[int(line[0])] = True
-    print(levels)
 
 
 def del_saves():
@@ -988,6 +987,15 @@ def start_screen():
                                 bt.string == 'Начало':
                             all_bt = []
                             level_cur = 1
+                            if level_cur == 1:
+                                music_cur = 4
+                            if level_cur == 2:
+                                music_cur = 5
+                            if level_cur == 3:
+                                music_cur = 3
+                            if level_cur == 4:
+                                music_cur = 6
+                            music_cur = 4
                             win.blit(game_fon, (0, 0))
                             tiles_group.draw(win)
                             flag2 = False
@@ -1013,6 +1021,7 @@ def start_screen():
                                 playing = True
                                 if music_stat:
                                     music_start(5)
+                                music_cur = 5
                                 camera = Camera()
                                 focus = Nothing()
                                 death = DeathWall()
@@ -1038,6 +1047,7 @@ def start_screen():
                                 focus = Nothing()
                                 death = DeathWall()
                                 level_cur = 3
+                                music_cur = 3
                                 if difficulty == 'сложный':
                                     health_point = 1
                                 else:
@@ -1056,7 +1066,7 @@ def start_screen():
                                 camera = Camera()
                                 focus = Nothing()
                                 death = DeathWall()
-                                level_cur = 4
+                                music_cur = 6
                                 if music_stat:
                                     music_start(6)
                                 level_cur = 4
