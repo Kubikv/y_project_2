@@ -53,7 +53,7 @@ levels = {1: True,
           4: False}
 
 ranks = ['крестьянин'
-         'простолюдина',
+         'простолюдин',
          'оруженосец',
          'рыцарь',
          'крестоносец']
@@ -65,6 +65,7 @@ player_group = pygame.sprite.Group()
 damage_group = pygame.sprite.Group()
 nothing_group = pygame.sprite.Group()
 special_group = pygame.sprite.Group()
+kill_group = pygame.sprite.Group()
 win_group = pygame.sprite.Group()
 
 
@@ -82,8 +83,24 @@ def prepare():
         music_stat = False
     for i in range(4):
         line = info[1][i].split(':')
-        if line == 'True':
+        if line[1] == 'True':
             levels[int(line[0])] = True
+    print(levels)
+
+
+def del_saves():
+    global difficulty, levels, score, rank, music_stat
+    filename = "data/" + 'copy.txt'
+    with open(filename, 'r') as mapFile:
+        info = [line.strip().split() for line in mapFile]
+    score = int(info[2][0])
+    rank = info[3][0]
+    for i in range(4):
+        line = info[1][i].split(':')
+        if line[1] == 'True':
+            levels[int(line[0])] = True
+        else:
+            levels[int(line[0])] = False
 
 
 def load_image(name, color_key=None):
@@ -112,9 +129,6 @@ def cut_sheet(sheet, columns, rows):
                           frame_location, rect.size)))
     return frames
 
-
-player_sheet = load_image('player_sheet.png')
-player_sheet = cut_sheet(player_sheet, 5, 1)
 
 tile_sheet = load_image('blocks3.png')
 tiles = cut_sheet(tile_sheet, 9, 2)
@@ -216,11 +230,6 @@ def load_level(filename):
     return level_map[::-1]
 
 
-def load_music(name):
-    filename = 'data/' + name
-    return filename
-
-
 class Particle(pygame.sprite.Sprite):
     blood = [load_image("blood.png")]
     for scale in (5, 10, 20):
@@ -253,7 +262,7 @@ def music_start(m_number):
     global music_paying
     music_paying = True
     pygame.mixer.init(frequency=22050, size=-16, channels=2, buffer=4096)
-    pygame.mixer.music.load(load_music(songs_list[m_number]))
+    pygame.mixer.music.load(songs_list[m_number])
     pygame.mixer.music.play(-1)
 
 
@@ -272,8 +281,8 @@ class Tile(pygame.sprite.Sprite):
             tile_width * pos_x, 635 - tile_height * pos_y)
 
 
-class Nothing(pygame.sprite.Sprite):  # спрайт на котором будет фокусироваться камера
-    def __init__(self):
+class Nothing(pygame.sprite.Sprite):
+    def __init__(self):  # спрайт на котором будет фокусироваться камера
         super().__init__(nothing_group, all_sprites)
         self.image = transparent_im
         self.all_movement = 0
@@ -284,12 +293,17 @@ class Nothing(pygame.sprite.Sprite):  # спрайт на котором буд�
         global camera_velocity, player
 
         for pl in player_group:
-            if pl.rect.right >= 1000:
-                camera_velocity = 7
+            if level_cur == 4 and \
+                    difficulty == 'сложный':
+                camera_velocity = 8
             else:
-                camera_velocity = 2
-        self.rect = self.rect.move(camera_velocity, 0)
-        self.all_movement += camera_velocity
+                if pl.rect.right >= 1000:
+                    camera_velocity = 7
+                else:
+                    camera_velocity = 2
+        if not self.all_movement >= 4638:
+            self.rect = self.rect.move(camera_velocity, 0)
+            self.all_movement += camera_velocity
 
     def restart(self):
         self.rect = self.rect.move(-self.all_movement, 0)
@@ -437,6 +451,8 @@ class MainMenu:  # класс, отвечающий за прорисовку м
         all_bt.append(bt_dif)
         bt_back = Button(self.font_bt, 552, 'Назад')
         all_bt.append(bt_back)
+        bt_del_prog = Button(self.font_bt, 350, 'Сброс прогресса')
+        all_bt.append(bt_del_prog)
 
     def note(self):
         global all_bt, music_cur, music_stat
@@ -454,7 +470,8 @@ class MainMenu:  # класс, отвечающий за прорисовку м
         win.blit(main_fon_image, (0, 0))
         text_coord = 50
         for line in intro_text:
-            string_rendered = self.font_bt.render(line, 1, pygame.Color('yellow'))
+            string_rendered = self.font_bt.render(line, 1,
+                                                  pygame.Color('yellow'))
             intro_rect = string_rendered.get_rect()
             text_coord += 10
             intro_rect.top = text_coord
@@ -522,7 +539,7 @@ class MainMenu:  # класс, отвечающий за прорисовку м
         if level_cur == 1:
             score += 50
             levels[2] = True
-            rank = 'простолюдина'
+            rank = 'простолюдин'
         elif level_cur == 2:
             score += 150
             levels[3] = True
@@ -534,6 +551,28 @@ class MainMenu:  # класс, отвечающий за прорисовку м
         elif level_cur == 4:
             score += 890
             rank = 'крестоносец'
+
+    def pause(self):
+        global music_stat, music_cur, all_bt, score
+
+        all_bt = []
+        score += 1
+        pygame.mixer.music.pause()
+        text = self.font_bt.render("Пауза", 1, (255, 200, 0))
+        text_x = 720
+        text_y = 100
+        pygame.draw.polygon(win, (109, 41, 1), ((600, 100),
+                                                (1000, 100),
+                                                (1000, 650),
+                                                (600, 650)), 0)
+        pygame.draw.rect(win, (46, 196, 24), (600, 100, 400, 550), 5)
+        win.blit(text, (text_x, text_y))
+        bt_back = Button(self.font_bt, 552, 'Назад')
+        all_bt.append(bt_back)
+        bt_set = Button(self.font_bt, 350, 'Настройки')
+        all_bt.append(bt_set)
+        bt_restart = Button(self.font_bt, 250, 'Продолжить')
+        all_bt.append(bt_restart)
 
 
 class Button:
@@ -556,21 +595,27 @@ class Button:
         else:
             self.mouse_on = False
         if self.mouse_on:
-            pygame.draw.polygon(win, (255, 235, 0), ((self.x - 10, self.y),
-                                                     (self.x + 10 + self.text_w, self.y),
-                                                     (self.x + self.text_w + 9, self.y + self.text_h + 10),
-                                                     (self.x - 10, self.y + self.text_h + 10)), 0)
+            pygame.draw.polygon(win, (255, 235, 0),
+                                ((self.x - 10, self.y),
+                                (self.x + 10 + self.text_w, self.y),
+                                (self.x + self.text_w + 9,
+                                 self.y + self.text_h + 10),
+                                (self.x - 10, self.y + self.text_h + 10)), 0)
             win.blit(self.text, (text_x, text_y))
             pygame.draw.rect(win, (109, 41, 1), (text_x - 10, text_y,
-                                                 self.text_w + 20, self.text_h + 10), 5)
+                                                 self.text_w + 20,
+                                                 self.text_h + 10), 5)
         else:
-            pygame.draw.polygon(win, (120, 120, 120), ((self.x - 10, self.y),
-                                                       (self.x + 10 + self.text_w, self.y),
-                                                       (self.x + self.text_w + 9, self.y + self.text_h + 10),
-                                                       (self.x - 10, self.y + self.text_h + 10)), 0)
+            pygame.draw.polygon(win, (120, 120, 120),
+                                ((self.x - 10, self.y),
+                                (self.x + 10 + self.text_w, self.y),
+                                (self.x + self.text_w + 9,
+                                 self.y + self.text_h + 10),
+                                (self.x - 10, self.y + self.text_h + 10)), 0)
             win.blit(self.text, (text_x, text_y))
             pygame.draw.rect(win, (109, 41, 1), (text_x - 10, text_y,
-                                                 self.text_w + 20, self.text_h + 10), 5)
+                                                 self.text_w + 20,
+                                                 self.text_h + 10), 5)
 
     def clicked(self, pos_x, pos_y):
         if self.x < pos_x < self.x + self.text_w and\
@@ -605,10 +650,17 @@ class Player(pygame.sprite.Sprite):
                 screen.win_screen()
                 playing = False
                 self.kill()
+        for entity in kill_group:
+            if pygame.sprite.collide_rect(self, entity):
+                screen.death_screen()
+                playing = False
+                self.kill()
         for spike in damage_group:
             if pygame.sprite.collide_rect(self, spike) and save_time == 0:
                 create_particles((self.rect.right - (self.rect.right -
-                                                     self.rect.left) // 2, self.rect.top))
+                                                     self.rect.left) // 2,
+                                  self.rect.top))
+
                 self.health -= 1
                 health_point -= 1
                 save_time = 20
@@ -633,9 +685,13 @@ class Player(pygame.sprite.Sprite):
                     jumpCount = 9
                     on_ground = False
                     j_c = False
-                elif right and block.rect.left <= self.rect.right <= block.rect.left + 55:
+                elif right and \
+                        block.rect.left <= self.rect.right <= \
+                        block.rect.left + 55:
                     self.rect.right = block.rect.left
-                elif left and block.rect.right - 55 <= self.rect.left <= block.rect.right:
+                elif left and \
+                        block.rect.right - 55 <= self.rect.left <= \
+                        block.rect.right:
                     self.rect.left = block.rect.right
 
                 elif not right and not left:
@@ -760,7 +816,8 @@ class Heretic(pygame.sprite.Sprite):  # класс простенького ai
         else:
             for block in tiles_group:
                 if pygame.sprite.collide_rect(self, block):
-                    if self.cur_move == 'left' and self.rect.left <= block.rect.right:
+                    if self.cur_move == 'left' and \
+                            self.rect.left <= block.rect.right:
                         self.cur_move = 'right'
                         self.rect.left = block.rect.right
                     else:
@@ -807,7 +864,8 @@ class HereticStrong(pygame.sprite.Sprite):  # класс сильного ai
             for block in tiles_group:
                 if pygame.sprite.collide_rect(self, block):
                     if pygame.sprite.collide_rect(self, block):
-                        if self.cur_move == 'left' and self.rect.left <= block.rect.right:
+                        if self.cur_move == 'left' and \
+                                self.rect.left <= block.rect.right:
                             self.cur_move = 'right'
                             self.rect.left = block.rect.right
                         else:
@@ -832,7 +890,7 @@ class HereticStrong(pygame.sprite.Sprite):  # класс сильного ai
 
 class DeathWall(pygame.sprite.Sprite):
     def __init__(self):
-        super().__init__(special_group, damage_group, all_sprites)
+        super().__init__(kill_group, all_sprites)
         self.image = d_w_image
         self.all_movement = 0
         self.rect = self.rect = self.image.get_rect().move(
@@ -857,7 +915,7 @@ def start_screen():
            right, animCount, LastMove, FPS,\
            playing, flag2, focus, death, all_bt,\
            player, difficulty, music_stat, music_cur,\
-           restart_ans, level_cur, health_point, save_time
+           restart_ans, level_cur, health_point, save_time, win_group
 
     if difficulty == 'None':
         screen.difficulty()
@@ -876,46 +934,66 @@ def start_screen():
             if event.type == pygame.MOUSEBUTTONDOWN:
                 if pygame.mouse.get_pressed()[0] == 1:
                     for bt in all_bt:
-                        if Button.clicked(bt, event.pos[0], event.pos[1]) and bt.string == 'Играть':
+                        if Button.clicked(bt, event.pos[0], event.pos[1]) and \
+                                bt.string == 'Играть':
                             screen.levels()
-                        elif Button.clicked(bt, event.pos[0], event.pos[1]) and bt.string == 'Настройки':
+                        elif Button.clicked(bt, event.pos[0],
+                                            event.pos[1]) and \
+                                bt.string == 'Настройки':
                             screen.settings()
-                        elif Button.clicked(bt, event.pos[0], event.pos[1]) and bt.string == 'Примечание':
+                        elif Button.clicked(bt, event.pos[0],
+                                            event.pos[1]) and \
+                                bt.string == 'Примечание':
                             screen.note()
-                        elif Button.clicked(bt, event.pos[0], event.pos[1]) and bt.string == 'Выход':
+                        elif Button.clicked(bt, event.pos[0],
+                                            event.pos[1]) and \
+                                bt.string == 'Выход':
                             terminate()
-                        elif Button.clicked(bt, event.pos[0], event.pos[1]) and bt.string == 'Назад':
+                        elif Button.clicked(bt, event.pos[0],
+                                            event.pos[1]) and \
+                                bt.string == 'Назад':
                             for s in all_sprites:
                                 s.kill()
                             screen.menu()
-                        elif Button.clicked(bt, event.pos[0], event.pos[1]) and bt.string == 'Легкий':
+                        elif Button.clicked(bt, event.pos[0],
+                                            event.pos[1]) and \
+                                bt.string == 'Легкий':
                             difficulty = 'легкий'
                             screen.menu()
-                        elif Button.clicked(bt, event.pos[0], event.pos[1]) and bt.string == 'Сложный':
+                        elif Button.clicked(bt, event.pos[0],
+                                            event.pos[1]) and \
+                                bt.string == 'Сложный':
                             difficulty = 'сложный'
                             screen.menu()
-                        elif Button.clicked(bt, event.pos[0], event.pos[1]) and bt.string.startswith('Уровень'):
+                        elif Button.clicked(bt, event.pos[0],
+                                            event.pos[1]) and \
+                                bt.string.startswith('Уровень'):
                             if difficulty == 'сложный':
                                 difficulty = 'легкий'
                             else:
                                 difficulty = 'сложный'
                             screen.settings()
-                        elif Button.clicked(bt, event.pos[0], event.pos[1]) and bt.string.startswith('Музыка'):
+                        elif Button.clicked(bt, event.pos[0],
+                                            event.pos[1]) and \
+                                bt.string.startswith('Музыка'):
                             if music_stat:
                                 music_stat = False
                                 music_stop()
                             else:
-                                music_start(music_cur)
+                                music_start(2)
                                 music_stat = True
                             screen.settings()
-                        elif Button.clicked(bt, event.pos[0], event.pos[1]) and bt.string == 'Начало':
+                        elif Button.clicked(bt, event.pos[0],
+                                            event.pos[1]) and \
+                                bt.string == 'Начало':
                             all_bt = []
                             level_cur = 1
                             win.blit(game_fon, (0, 0))
                             tiles_group.draw(win)
                             flag2 = False
                             playing = True
-                            music_start(4)
+                            if music_stat:
+                                music_start(4)
                             camera = Camera()
                             focus = Nothing()
                             death = DeathWall()
@@ -924,53 +1002,76 @@ def start_screen():
                             else:
                                 health_point = 5
                             player = generate_level(load_level('level_1.txt'))
-                        elif Button.clicked(bt, event.pos[0], event.pos[1]) and bt.string == 'Подземелье':
-                            all_bt = []
-                            win.blit(game_fon, (0, 0))
-                            tiles_group.draw(win)
-                            flag2 = False
-                            playing = True
-                            music_start(5)
-                            camera = Camera()
-                            focus = Nothing()
-                            death = DeathWall()
-                            level_cur = 2
-                            if difficulty == 'сложный':
-                                health_point = 1
-                            else:
-                                health_point = 5
-                            player = generate_level(load_level('level_2.txt'))
-                        elif Button.clicked(bt, event.pos[0], event.pos[1]) and bt.string == 'Конец':
-                            all_bt = []
-                            win.blit(game_fon, (0, 0))
-                            tiles_group.draw(win)
-                            flag2 = False
-                            playing = True
-                            music_start(3)
-                            camera = Camera()
-                            focus = Nothing()
-                            death = DeathWall()
-                            if difficulty == 'сложный':
-                                health_point = 1
-                            else:
-                                health_point = 5
-                            player = generate_level(load_level('level_3.txt'))
-                        elif Button.clicked(bt, event.pos[0], event.pos[1]) and bt.string == 'Эпилог???':
-                            all_bt = []
-                            win.blit(game_fon, (0, 0))
-                            tiles_group.draw(win)
-                            flag2 = False
-                            playing = True
-                            music_start(6)
-                            level_cur = 4
-                            if difficulty == 'сложный':
-                                health_point = 1
-                            else:
-                                health_point = 5
-                            player = generate_level(load_level('level_4.txt'))
-                        elif Button.clicked(bt, event.pos[0], event.pos[1]) and bt.string == 'Заново':
+                        elif Button.clicked(bt, event.pos[0],
+                                            event.pos[1]) and \
+                                bt.string == 'Подземелье':
+                            if levels[2]:
+                                all_bt = []
+                                win.blit(game_fon, (0, 0))
+                                tiles_group.draw(win)
+                                flag2 = False
+                                playing = True
+                                if music_stat:
+                                    music_start(5)
+                                camera = Camera()
+                                focus = Nothing()
+                                death = DeathWall()
+                                level_cur = 2
+                                if difficulty == 'сложный':
+                                    health_point = 1
+                                else:
+                                    health_point = 5
+                                player = generate_level(load_level(
+                                    'level_2.txt'))
+                        elif Button.clicked(bt, event.pos[0],
+                                            event.pos[1]) and \
+                                bt.string == 'Конец':
+                            if levels[3]:
+                                all_bt = []
+                                win.blit(game_fon, (0, 0))
+                                tiles_group.draw(win)
+                                flag2 = False
+                                playing = True
+                                if music_stat:
+                                    music_start(3)
+                                camera = Camera()
+                                focus = Nothing()
+                                death = DeathWall()
+                                level_cur = 3
+                                if difficulty == 'сложный':
+                                    health_point = 1
+                                else:
+                                    health_point = 5
+                                player = generate_level(
+                                    load_level('level_3.txt'))
+                        elif Button.clicked(bt, event.pos[0],
+                                            event.pos[1]) and \
+                                bt.string == 'Эпилог???':
+                            if levels[4]:
+                                all_bt = []
+                                win.blit(game_fon, (0, 0))
+                                tiles_group.draw(win)
+                                flag2 = False
+                                playing = True
+                                camera = Camera()
+                                focus = Nothing()
+                                death = DeathWall()
+                                level_cur = 4
+                                if music_stat:
+                                    music_start(6)
+                                level_cur = 4
+                                if difficulty == 'сложный':
+                                    health_point = 1
+                                else:
+                                    health_point = 5
+                                player = generate_level(load_level(
+                                    'level_4.txt'))
+                        elif Button.clicked(bt, event.pos[0],
+                                            event.pos[1]) and \
+                                bt.string == 'Заново':
                             all_bt = []
                             restart_ans = True
+                            playing = True
                             if difficulty == 'сложный':
                                 health_point = 1
                             else:
@@ -984,14 +1085,31 @@ def start_screen():
                                 music_cur = 3
                             if level_cur == 4:
                                 music_cur = 6
-                            music_start(music_cur)
-                        elif Button.clicked(bt, event.pos[0], event.pos[1]) and bt.string == 'Deus Vult':
+                            if music_stat:
+                                music_start(music_cur)
+                        elif Button.clicked(bt, event.pos[0],
+                                            event.pos[1]) and \
+                                bt.string == 'Deus Vult!':
                             for s in all_sprites:
                                 s.kill()
                             screen.menu()
+                        elif Button.clicked(bt, event.pos[0],
+                                            event.pos[1]) and \
+                                bt.string == 'Продолжить':
+                            all_bt = []
+                            playing = True
+                            if music_stat:
+                                music_start(music_cur)
+                        elif Button.clicked(bt, event.pos[0],
+                                            event.pos[1]) and \
+                                bt.string == 'Сброс прогресса':
+                            del_saves()
 
         pygame.display.flip()
         keys = pygame.key.get_pressed()
+        if keys[pygame.K_ESCAPE]:
+            playing = False
+            screen.pause()
         if playing:
             if save_time > 0:
                 save_time -= 1
@@ -1024,6 +1142,8 @@ def start_screen():
             tiles_group.draw(win)
             nothing_group.draw(win)
             special_group.draw(win)
+            kill_group.draw(win)
+            win_group.draw(win)
             all_sprites.update()
             camera.update(focus)
             for sprite in all_sprites:
