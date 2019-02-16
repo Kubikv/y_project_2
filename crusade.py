@@ -1117,10 +1117,12 @@ def start_screen():
 
         pygame.display.flip()
         keys = pygame.key.get_pressed()
-        if keys[pygame.K_ESCAPE]:
-            playing = False
-            screen.pause()
+
         if playing:
+            if keys[pygame.K_ESCAPE]:
+                playing = False
+                screen.pause()
+                continue
             if save_time > 0:
                 save_time -= 1
             pygame.mouse.set_visible(False)
